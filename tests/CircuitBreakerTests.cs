@@ -96,4 +96,26 @@ public class CircuitBreakerTests
         Assert.Equal(CircuitState.Open, breaker.State);
         Assert.False(breaker.CanAttempt());
     }
+
+    [Fact]
+    public void HalfOpen_AllowsOnlyOneProbe()
+    {
+        var cb = new CircuitBreaker(threshold: 1, resetTimeoutMs: 0);
+        cb.RecordFailure(); // opens
+        Thread.Sleep(1); // let reset timeout pass
+
+        Assert.True(cb.CanAttempt());  // first probe allowed
+        Assert.False(cb.CanAttempt()); // second blocked while probe in-flight
+    }
+
+    [Fact]
+    public void HalfOpen_FailedProbeReopens()
+    {
+        var cb = new CircuitBreaker(threshold: 1, resetTimeoutMs: 50);
+        cb.RecordFailure();
+        Thread.Sleep(100); // let timeout pass to reach HalfOpen
+        cb.CanAttempt(); // allow probe
+        cb.RecordFailure(); // probe failed → reopen
+        Assert.False(cb.CanAttempt()); // should be Open, not HalfOpen yet
+    }
 }

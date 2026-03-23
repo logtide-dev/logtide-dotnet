@@ -1,6 +1,9 @@
-using LogTide.SDK;
+using LogTide.SDK.Breadcrumbs;
+using LogTide.SDK.Core;
+using LogTide.SDK.Integrations;
 using LogTide.SDK.Models;
 using LogTide.SDK.Enums;
+using LogTide.SDK.Tracing;
 
 // Advanced usage example with all features
 
@@ -8,72 +11,76 @@ Console.WriteLine("LogTide SDK - Advanced Example");
 Console.WriteLine("==============================\n");
 
 // Create client with full configuration
-var client = new LogTideClient(new ClientOptions
+var options = new ClientOptions
 {
     ApiUrl = "http://localhost:8080",
     ApiKey = "lp_your_api_key_here",
-    
+    ServiceName = "advanced-example",
+
     // Batching
     BatchSize = 50,
     FlushIntervalMs = 3000,
-    
+
     // Buffer management
     MaxBufferSize = 5000,
-    
+
     // Retry logic
     MaxRetries = 3,
     RetryDelayMs = 500,
-    
+
     // Circuit breaker
     CircuitBreakerThreshold = 3,
     CircuitBreakerResetMs = 10000,
-    
+
     // Options
     EnableMetrics = true,
     Debug = true,
-    
+
+    // Integrations
+    Integrations = [new GlobalErrorIntegration()],
+
     // Global metadata added to every log
     GlobalMetadata = new Dictionary<string, object?>
     {
         ["environment"] = "development",
-        ["version"] = "1.0.0",
+        ["version"] = "2.0.0",
         ["machine"] = Environment.MachineName
     }
-});
+};
 
-// 1. Basic logging with levels
-Console.WriteLine("1. Basic Logging");
-client.Debug("advanced", "Debug message");
-client.Info("advanced", "Info message");
-client.Warn("advanced", "Warning message");
-client.Error("advanced", "Error message");
-client.Critical("advanced", "Critical message");
+await using var client = LogTideClient.FromDsn("https://lp_key@api.logtide.dev", options);
 
-// 2. Trace ID context
-Console.WriteLine("\n2. Trace ID Context");
-
-// Manual trace ID
-client.SetTraceId("trace-001");
-client.Info("advanced", "Log with manual trace ID");
-client.Info("advanced", "Another log with same trace");
-client.SetTraceId(null);
-
-// Scoped trace ID
-client.WithTraceId("trace-002", () =>
+// 1. AsyncLocal Scope-based tracing (replaces SetTraceId/WithTraceId)
+Console.WriteLine("1. Scope-based Tracing");
+using (var scope = LogTideScope.Create())
 {
-    client.Info("advanced", "Log inside scoped trace");
-    client.Info("advanced", "Another log in scope");
-});
+    client.Info("advanced", "Log with auto-generated W3C trace ID");
+    Console.WriteLine($"  Trace ID: {scope.TraceId}");
 
-// Auto-generated trace ID
-client.WithNewTraceId(() =>
-{
-    client.Info("advanced", "Log with auto-generated trace ID");
-    Console.WriteLine($"  Generated trace ID: {client.GetTraceId()}");
-});
+    // 2. Span tracking
+    Console.WriteLine("\n2. Span Tracking");
+    var span = client.StartSpan("process-order");
+    span.SetAttribute("order.id", "ORD-123");
 
-// 3. Custom log entries
-Console.WriteLine("\n3. Custom Log Entries");
+    client.Info("advanced", "Processing order");
+    await Task.Delay(50); // simulate work
+
+    span.AddEvent("validation-complete");
+    await Task.Delay(50);
+
+    client.FinishSpan(span, SpanStatus.Ok);
+    Console.WriteLine($"  Span: {span.Name} ({span.SpanId})");
+
+    // 3. Breadcrumbs
+    Console.WriteLine("\n3. Breadcrumbs");
+    client.AddBreadcrumb(new Breadcrumb { Message = "User clicked button", Type = "ui" });
+    client.AddBreadcrumb(new Breadcrumb { Message = "API call started", Type = "http" });
+    client.Info("advanced", "Action with breadcrumbs");
+    Console.WriteLine($"  Breadcrumbs: {scope.GetBreadcrumbs().Count}");
+}
+
+// 4. Custom log entries
+Console.WriteLine("\n4. Custom Log Entries");
 client.Log(new LogEntry
 {
     Service = "custom-service",
@@ -82,53 +89,27 @@ client.Log(new LogEntry
     Metadata = new Dictionary<string, object?>
     {
         ["custom"] = "data",
-        ["nested"] = new Dictionary<string, object?>
-        {
-            ["key"] = "value"
-        }
+        ["nested"] = new Dictionary<string, object?> { ["key"] = "value" }
     }
 });
 
-// 4. Error serialization
-Console.WriteLine("\n4. Error Serialization");
+// 5. Error serialization
+Console.WriteLine("\n5. Error Serialization");
 try
 {
-    try
-    {
-        throw new InvalidOperationException("Inner exception");
-    }
-    catch (Exception inner)
-    {
-        throw new ApplicationException("Outer exception", inner);
-    }
+    try { throw new InvalidOperationException("Inner exception"); }
+    catch (Exception inner) { throw new ApplicationException("Outer exception", inner); }
 }
 catch (Exception ex)
 {
     client.Error("advanced", "Nested exception example", ex);
 }
 
-// 5. Metrics
-Console.WriteLine("\n5. Checking Metrics");
+// 6. Metrics
+Console.WriteLine("\n6. Metrics");
+await client.FlushAsync();
 var metrics = client.GetMetrics();
 Console.WriteLine($"  Logs sent: {metrics.LogsSent}");
-Console.WriteLine($"  Logs dropped: {metrics.LogsDropped}");
-Console.WriteLine($"  Errors: {metrics.Errors}");
-Console.WriteLine($"  Retries: {metrics.Retries}");
-Console.WriteLine($"  Avg latency: {metrics.AvgLatencyMs:F2}ms");
-Console.WriteLine($"  Circuit breaker trips: {metrics.CircuitBreakerTrips}");
 Console.WriteLine($"  Circuit state: {client.GetCircuitBreakerState()}");
 
-// 6. Manual flush
-Console.WriteLine("\n6. Manual Flush");
-await client.FlushAsync();
-Console.WriteLine("  Flush completed");
-
-// 7. Updated metrics after flush
-metrics = client.GetMetrics();
-Console.WriteLine($"\n7. Updated Metrics");
-Console.WriteLine($"  Logs sent: {metrics.LogsSent}");
-
-// 8. Cleanup
-Console.WriteLine("\n8. Cleanup");
-await client.DisposeAsync();
-Console.WriteLine("  Client disposed successfully");
+Console.WriteLine("\nDone!");

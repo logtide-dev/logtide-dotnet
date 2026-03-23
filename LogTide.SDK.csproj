@@ -1,14 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net6.0;net7.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <LangVersion>10</LangVersion>
-    
+    <LangVersion>13</LangVersion>
+
     <!-- Package Info -->
     <PackageId>LogTide.SDK</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.8.3</Version>
     <Authors>LogTide</Authors>
     <Company>LogTide</Company>
     <Description>Official .NET SDK for LogTide - A powerful log management platform. Features automatic batching, retry logic, circuit breaker, distributed tracing, and ASP.NET Core middleware.</Description>
@@ -19,26 +19,29 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>logging;log-management;observability;monitoring;distributed-tracing;aspnetcore;middleware</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    
+
     <!-- Build Settings -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditLevel>moderate</NuGetAuditLevel>
   </PropertyGroup>
 
   <!-- Exclude examples and tests from compilation -->
   <ItemGroup>
     <Compile Remove="examples\**" />
     <Compile Remove="tests\**" />
+    <Compile Remove="Serilog\**" />
     <None Remove="examples\**" />
     <None Remove="tests\**" />
+    <None Remove="Serilog\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
-    <PackageReference Include="System.Text.Encodings.Web" Version="8.0.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>

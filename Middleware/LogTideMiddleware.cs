@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using LogTide.SDK.Core;
 using LogTide.SDK.Enums;
 using LogTide.SDK.Models;
+using LogTide.SDK.Tracing;
 using Microsoft.AspNetCore.Http;
 
 namespace LogTide.SDK.Middleware;
@@ -10,11 +12,6 @@ namespace LogTide.SDK.Middleware;
 /// </summary>
 public class LogTideMiddlewareOptions
 {
-    /// <summary>
-    /// LogTide client instance.
-    /// </summary>
-    public LogTideClient? Client { get; set; }
-
     /// <summary>
     /// Service name to use in logs.
     /// </summary>
@@ -49,90 +46,90 @@ public class LogTideMiddlewareOptions
     /// Paths to skip logging for.
     /// </summary>
     public HashSet<string> SkipPaths { get; set; } = new();
-
-    /// <summary>
-    /// Header name to read/write trace ID. Default: "X-Trace-Id".
-    /// </summary>
-    public string TraceIdHeader { get; set; } = "X-Trace-Id";
 }
 
 /// <summary>
-/// ASP.NET Core middleware for automatic HTTP request/response logging.
+/// ASP.NET Core middleware for automatic HTTP request/response logging with W3C traceparent support.
 /// </summary>
 public class LogTideMiddleware
 {
+    private static readonly HashSet<string> SensitiveHeaders =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "authorization", "cookie", "set-cookie",
+            "x-api-key", "x-auth-token", "proxy-authorization"
+        };
+
     private readonly RequestDelegate _next;
     private readonly LogTideMiddlewareOptions _options;
+    private readonly ILogTideClient _client;
 
-    /// <summary>
-    /// Creates a new LogTide middleware instance.
-    /// </summary>
-    public LogTideMiddleware(RequestDelegate next, LogTideMiddlewareOptions options)
+    public LogTideMiddleware(RequestDelegate next, LogTideMiddlewareOptions options, ILogTideClient client)
     {
         _next = next ?? throw new ArgumentNullException(nameof(next));
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        
-        if (_options.Client == null)
-            throw new ArgumentNullException(nameof(options), "LogTideMiddlewareOptions.Client cannot be null");
+        _client = client ?? throw new ArgumentNullException(nameof(client));
     }
 
-    /// <summary>
-    /// Invokes the middleware.
-    /// </summary>
     public async Task InvokeAsync(HttpContext context)
     {
-        // Check if path should be skipped
         if (ShouldSkip(context))
         {
             await _next(context);
             return;
         }
 
-        // Get or generate trace ID
+        // Parse or generate trace ID
         var traceId = GetOrGenerateTraceId(context);
-        _options.Client!.SetTraceId(traceId);
+        using var scope = LogTideScope.Create(traceId);
 
-        // Add trace ID to response headers
+        // Start request span
+        var span = _client.StartSpan($"{context.Request.Method} {context.Request.Path}");
+        var spanStatus = SpanStatus.Ok;
+
+        // Emit traceparent response header
         context.Response.OnStarting(() =>
         {
-            context.Response.Headers[_options.TraceIdHeader] = traceId;
+            context.Response.Headers[W3CTraceContext.HeaderName] =
+                W3CTraceContext.Create(scope.TraceId, span.SpanId);
             return Task.CompletedTask;
         });
 
         var stopwatch = Stopwatch.StartNew();
 
-        // Log request
-        if (_options.LogRequests)
-        {
-            LogRequest(context);
-        }
-
         try
         {
+            if (_options.LogRequests)
+                LogRequest(context);
+
             await _next(context);
             stopwatch.Stop();
 
-            // Log response
+            span.SetAttribute("http.status_code", context.Response.StatusCode);
+            spanStatus = context.Response.StatusCode >= 500 ? SpanStatus.Error : SpanStatus.Ok;
+
             if (_options.LogResponses)
-            {
                 LogResponse(context, stopwatch.ElapsedMilliseconds);
-            }
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
+            spanStatus = SpanStatus.Error;
 
-            // Log error
-            if (_options.LogErrors)
+            span.AddEvent("exception", new Dictionary<string, object?>
             {
+                ["message"] = ex.Message,
+                ["type"] = ex.GetType().FullName
+            });
+
+            if (_options.LogErrors)
                 LogError(context, ex, stopwatch.ElapsedMilliseconds);
-            }
 
             throw;
         }
         finally
         {
-            _options.Client!.SetTraceId(null);
+            _client.FinishSpan(span, spanStatus);
         }
     }
 
@@ -140,36 +137,33 @@ public class LogTideMiddleware
     {
         var path = context.Request.Path.Value ?? "";
 
-        // Skip health check endpoints
         if (_options.SkipHealthCheck)
         {
             var lowerPath = path.ToLowerInvariant();
             if (lowerPath.Contains("/health") || lowerPath == "/ready" || lowerPath == "/live")
-            {
                 return true;
-            }
         }
 
-        // Skip configured paths
-        if (_options.SkipPaths.Contains(path))
-        {
-            return true;
-        }
-
-        return false;
+        return _options.SkipPaths.Contains(path);
     }
 
-    private string GetOrGenerateTraceId(HttpContext context)
+    private static string GetOrGenerateTraceId(HttpContext context)
     {
-        // Try to get trace ID from header
-        if (context.Request.Headers.TryGetValue(_options.TraceIdHeader, out var existingTraceId) 
-            && !string.IsNullOrEmpty(existingTraceId))
+        // Try W3C traceparent first
+        if (context.Request.Headers.TryGetValue(W3CTraceContext.HeaderName, out var traceparent))
         {
-            return existingTraceId!;
+            var parsed = W3CTraceContext.Parse(traceparent!);
+            if (parsed.HasValue) return parsed.Value.TraceId;
         }
 
-        // Generate new trace ID
-        return Guid.NewGuid().ToString();
+        // Fallback to X-Trace-Id
+        if (context.Request.Headers.TryGetValue("X-Trace-Id", out var legacyTraceId)
+            && !string.IsNullOrEmpty(legacyTraceId))
+        {
+            return legacyTraceId!;
+        }
+
+        return W3CTraceContext.GenerateTraceId();
     }
 
     private void LogRequest(HttpContext context)
@@ -187,11 +181,11 @@ public class LogTideMiddleware
         if (_options.IncludeHeaders)
         {
             metadata["headers"] = request.Headers
-                .Where(h => !h.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
+                .Where(h => !SensitiveHeaders.Contains(h.Key))
                 .ToDictionary(h => h.Key, h => h.Value.ToString());
         }
 
-        _options.Client!.Log(new LogEntry
+        _client.Log(new LogEntry
         {
             Service = _options.ServiceName,
             Level = LogLevel.Info,
@@ -207,44 +201,40 @@ public class LogTideMiddleware
             : statusCode >= 400 ? LogLevel.Warn
             : LogLevel.Info;
 
-        var metadata = new Dictionary<string, object?>
-        {
-            ["method"] = context.Request.Method,
-            ["path"] = context.Request.Path.Value,
-            ["status_code"] = statusCode,
-            ["duration_ms"] = durationMs
-        };
-
-        _options.Client!.Log(new LogEntry
+        _client.Log(new LogEntry
         {
             Service = _options.ServiceName,
             Level = level,
             Message = $"{context.Request.Method} {context.Request.Path} {statusCode} ({durationMs}ms)",
-            Metadata = metadata
+            Metadata = new Dictionary<string, object?>
+            {
+                ["method"] = context.Request.Method,
+                ["path"] = context.Request.Path.Value,
+                ["status_code"] = statusCode,
+                ["duration_ms"] = durationMs
+            }
         });
     }
 
     private void LogError(HttpContext context, Exception exception, long durationMs)
     {
-        var metadata = new Dictionary<string, object?>
-        {
-            ["method"] = context.Request.Method,
-            ["path"] = context.Request.Path.Value,
-            ["duration_ms"] = durationMs,
-            ["error"] = new Dictionary<string, object?>
-            {
-                ["name"] = exception.GetType().Name,
-                ["message"] = exception.Message,
-                ["stack"] = exception.StackTrace
-            }
-        };
-
-        _options.Client!.Log(new LogEntry
+        _client.Log(new LogEntry
         {
             Service = _options.ServiceName,
             Level = LogLevel.Error,
             Message = $"Request error: {exception.Message}",
-            Metadata = metadata
+            Metadata = new Dictionary<string, object?>
+            {
+                ["method"] = context.Request.Method,
+                ["path"] = context.Request.Path.Value,
+                ["duration_ms"] = durationMs,
+                ["error"] = new Dictionary<string, object?>
+                {
+                    ["name"] = exception.GetType().Name,
+                    ["message"] = exception.Message,
+                    ["stack"] = exception.StackTrace
+                }
+            }
         });
     }
 }

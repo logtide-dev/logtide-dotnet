@@ -43,6 +43,18 @@ public class LogEntry
     /// </summary>
     [JsonPropertyName("trace_id")]
     public string? TraceId { get; set; }
+
+    /// <summary>
+    /// Optional span ID for distributed tracing.
+    /// </summary>
+    [JsonPropertyName("span_id")]
+    public string? SpanId { get; set; }
+
+    /// <summary>
+    /// Optional session ID for user session tracking.
+    /// </summary>
+    [JsonPropertyName("session_id")]
+    public string? SessionId { get; set; }
 }
 
 /// <summary>
@@ -68,6 +80,12 @@ internal class SerializableLogEntry
     [JsonPropertyName("trace_id")]
     public string? TraceId { get; set; }
 
+    [JsonPropertyName("span_id")]
+    public string? SpanId { get; set; }
+
+    [JsonPropertyName("session_id")]
+    public string? SessionId { get; set; }
+
     public static SerializableLogEntry FromLogEntry(LogEntry entry) => new()
     {
         Service = entry.Service,
@@ -75,6 +93,8 @@ internal class SerializableLogEntry
         Message = entry.Message,
         Time = entry.Time,
         Metadata = entry.Metadata.Count > 0 ? entry.Metadata : null,
-        TraceId = entry.TraceId
+        TraceId = entry.TraceId,
+        SpanId = entry.SpanId,
+        SessionId = entry.SessionId
     };
 }

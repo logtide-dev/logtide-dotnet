@@ -1,4 +1,4 @@
-using LogTide.SDK;
+using LogTide.SDK.Core;
 using LogTide.SDK.Models;
 
 // Basic usage example
@@ -6,13 +6,16 @@ using LogTide.SDK.Models;
 Console.WriteLine("LogTide SDK - Basic Example");
 Console.WriteLine("===========================\n");
 
-// Create client
-var client = new LogTideClient(new ClientOptions
-{
-    ApiUrl = "http://localhost:8080",
-    ApiKey = "lp_your_api_key_here",
-    Debug = true
-});
+// Create client using DSN
+await using var client = LogTideClient.FromDsn("https://lp_your_api_key@api.logtide.dev");
+
+// Or create with explicit options:
+// await using var client = new LogTideClient(new ClientOptions
+// {
+//     ApiUrl = "http://localhost:8080",
+//     ApiKey = "lp_your_api_key_here",
+//     Debug = true
+// });
 
 // Basic logging
 client.Debug("example", "This is a debug message");
@@ -37,24 +40,17 @@ catch (Exception ex)
     client.Error("example", "An error occurred", ex);
 }
 
-// Critical logging
-client.Critical("example", "System is shutting down", new Dictionary<string, object?>
+// Scoped tracing with LogTideScope
+using (var scope = LogTideScope.Create())
 {
-    ["reason"] = "maintenance",
-    ["scheduled"] = true
-});
-
-Console.WriteLine("\nWaiting for logs to be sent...");
-await Task.Delay(2000);
+    client.Info("example", "This log has an auto-generated W3C trace ID");
+    Console.WriteLine($"Trace ID: {scope.TraceId}");
+}
 
 // Get metrics
 var metrics = client.GetMetrics();
 Console.WriteLine($"\n--- Metrics ---");
 Console.WriteLine($"Logs sent: {metrics.LogsSent}");
-Console.WriteLine($"Logs dropped: {metrics.LogsDropped}");
-Console.WriteLine($"Errors: {metrics.Errors}");
 Console.WriteLine($"Circuit breaker state: {client.GetCircuitBreakerState()}");
 
-// Cleanup
-await client.DisposeAsync();
-Console.WriteLine("\nClient disposed. Done!");
+Console.WriteLine("\nDone!");
