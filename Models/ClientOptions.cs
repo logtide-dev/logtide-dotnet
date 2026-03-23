@@ -1,3 +1,5 @@
+using LogTide.SDK.Integrations;
+
 namespace LogTide.SDK.Models;
 
 /// <summary>
@@ -6,7 +8,7 @@ namespace LogTide.SDK.Models;
 public class ClientOptions
 {
     /// <summary>
-    /// Base URL of the LogTide API (e.g., "https://logward.dev" or "http://localhost:8080").
+    /// Base URL of the LogTide API (e.g., "https://logtide.dev" or "http://localhost:8080").
     /// </summary>
     public string ApiUrl { get; set; } = string.Empty;
 
@@ -14,6 +16,26 @@ public class ClientOptions
     /// Project API key (starts with "lp_").
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// DSN string that encodes both API URL and API key (e.g., "https://lp_mykey@api.logtide.dev").
+    /// </summary>
+    public string? Dsn { get; set; }
+
+    /// <summary>
+    /// Service name for tracing. Default: "app".
+    /// </summary>
+    public string ServiceName { get; set; } = "app";
+
+    /// <summary>
+    /// Sample rate for traces (0.0 to 1.0). Default: 1.0.
+    /// </summary>
+    public double TracesSampleRate { get; set; } = 1.0;
+
+    /// <summary>
+    /// Integrations to register on client initialization.
+    /// </summary>
+    public List<IIntegration> Integrations { get; set; } = [];
 
     /// <summary>
     /// Number of logs to batch before sending. Default: 100.
@@ -74,4 +96,28 @@ public class ClientOptions
     /// HTTP timeout in seconds. Default: 30.
     /// </summary>
     public int HttpTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Creates ClientOptions from a DSN string.
+    /// </summary>
+    public static ClientOptions FromDsn(string dsn)
+    {
+        var uri = new Uri(dsn);
+        return new ClientOptions
+        {
+            ApiUrl = $"{uri.Scheme}://{uri.Host}{(uri.IsDefaultPort ? "" : $":{uri.Port}")}",
+            ApiKey = uri.UserInfo
+        };
+    }
+
+    /// <summary>
+    /// Resolves DSN into ApiUrl and ApiKey if they are not already set.
+    /// </summary>
+    internal void Resolve()
+    {
+        if (string.IsNullOrEmpty(Dsn)) return;
+        var parsed = FromDsn(Dsn);
+        if (string.IsNullOrEmpty(ApiUrl)) ApiUrl = parsed.ApiUrl;
+        if (string.IsNullOrEmpty(ApiKey)) ApiKey = parsed.ApiKey;
+    }
 }

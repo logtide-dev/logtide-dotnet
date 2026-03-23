@@ -1,98 +1,79 @@
+using LogTide.SDK.Core;
+using LogTide.SDK.Models;
+using LogTide.SDK.Transport;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using LogTide.SDK.Models;
 
 namespace LogTide.SDK.Middleware;
 
-/// <summary>
-/// Extension methods for adding LogTide to ASP.NET Core applications.
-/// </summary>
 public static class LogTideExtensions
 {
     /// <summary>
-    /// Adds LogTide client as a singleton service.
+    /// Adds LogTide client as a singleton service with IHttpClientFactory.
     /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="options">Client configuration options.</param>
-    /// <returns>The service collection.</returns>
     public static IServiceCollection AddLogTide(
-        this IServiceCollection services, 
+        this IServiceCollection services,
         ClientOptions options)
     {
-        var client = new LogTideClient(options);
-        services.AddSingleton(client);
+        services.AddHttpClient("LogTide", client =>
+        {
+            client.BaseAddress = new Uri(options.ApiUrl.TrimEnd('/'));
+            client.DefaultRequestHeaders.TryAddWithoutValidation("X-API-Key", options.ApiKey);
+            client.Timeout = TimeSpan.FromSeconds(options.HttpTimeoutSeconds);
+        });
+
+        services.AddSingleton<ILogTideClient>(sp =>
+        {
+            var factory = sp.GetRequiredService<IHttpClientFactory>();
+            return new LogTideClient(options, factory);
+        });
+
         return services;
     }
 
     /// <summary>
-    /// Adds LogTide client using a factory function.
+    /// Adds LogTide client using an options configuration action.
     /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="optionsFactory">Factory function for client options.</param>
-    /// <returns>The service collection.</returns>
     public static IServiceCollection AddLogTide(
-        this IServiceCollection services, 
-        Func<IServiceProvider, ClientOptions> optionsFactory)
+        this IServiceCollection services,
+        Action<ClientOptions> configure)
     {
-        services.AddSingleton(sp =>
-        {
-            var options = optionsFactory(sp);
-            return new LogTideClient(options);
-        });
-        return services;
+        var options = new ClientOptions();
+        configure(options);
+        return services.AddLogTide(options);
     }
 
     /// <summary>
     /// Adds LogTide HTTP request/response logging middleware.
     /// </summary>
-    /// <param name="app">The application builder.</param>
-    /// <param name="optionsAction">Action to configure middleware options.</param>
-    /// <returns>The application builder.</returns>
     public static IApplicationBuilder UseLogTide(
         this IApplicationBuilder app,
-        Action<LogTideMiddlewareOptions> optionsAction)
+        Action<LogTideMiddlewareOptions>? optionsAction = null)
     {
-        var options = new LogTideMiddlewareOptions
-        {
-            Client = app.ApplicationServices.GetRequiredService<LogTideClient>()
-        };
-        
-        optionsAction(options);
-        
+        var options = new LogTideMiddlewareOptions();
+        optionsAction?.Invoke(options);
+
         return app.UseMiddleware<LogTideMiddleware>(options);
     }
 
     /// <summary>
-    /// Adds LogTide HTTP request/response logging middleware with the default client.
+    /// Adds LogTide HTTP request/response logging middleware with a service name.
     /// </summary>
-    /// <param name="app">The application builder.</param>
-    /// <param name="serviceName">Service name to use in logs.</param>
-    /// <returns>The application builder.</returns>
     public static IApplicationBuilder UseLogTide(
+        this IApplicationBuilder app,
+        string serviceName)
+    {
+        var options = new LogTideMiddlewareOptions { ServiceName = serviceName };
+        return app.UseMiddleware<LogTideMiddleware>(options);
+    }
+
+    /// <summary>
+    /// Adds LogTide error handler middleware that catches unhandled exceptions.
+    /// </summary>
+    public static IApplicationBuilder UseLogTideErrors(
         this IApplicationBuilder app,
         string serviceName = "aspnet-api")
     {
-        var client = app.ApplicationServices.GetRequiredService<LogTideClient>();
-        
-        var options = new LogTideMiddlewareOptions
-        {
-            Client = client,
-            ServiceName = serviceName
-        };
-        
-        return app.UseMiddleware<LogTideMiddleware>(options);
-    }
-
-    /// <summary>
-    /// Adds LogTide HTTP request/response logging middleware with explicit options.
-    /// </summary>
-    /// <param name="app">The application builder.</param>
-    /// <param name="options">Middleware options.</param>
-    /// <returns>The application builder.</returns>
-    public static IApplicationBuilder UseLogTide(
-        this IApplicationBuilder app,
-        LogTideMiddlewareOptions options)
-    {
-        return app.UseMiddleware<LogTideMiddleware>(options);
+        return app.UseMiddleware<LogTideErrorHandlerMiddleware>(serviceName);
     }
 }

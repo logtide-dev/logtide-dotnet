@@ -1,4 +1,4 @@
-using LogTide.SDK;
+using LogTide.SDK.Core;
 using LogTide.SDK.Models;
 
 // Query API example
@@ -6,11 +6,7 @@ using LogTide.SDK.Models;
 Console.WriteLine("LogTide SDK - Query API Example");
 Console.WriteLine("================================\n");
 
-var client = new LogTideClient(new ClientOptions
-{
-    ApiUrl = "http://localhost:8080",
-    ApiKey = "lp_your_api_key_here"
-});
+await using var client = LogTideClient.FromDsn("https://lp_your_api_key@api.logtide.dev");
 
 // First, send some test logs
 Console.WriteLine("Sending test logs...");
@@ -26,7 +22,7 @@ for (int i = 0; i < 10; i++)
 await client.FlushAsync();
 Console.WriteLine("Test logs sent.\n");
 
-// Wait a moment for logs to be indexed
+// Wait for indexing
 await Task.Delay(1000);
 
 // 1. Basic query
@@ -38,7 +34,7 @@ try
         Service = "query-example",
         Limit = 5
     });
-    
+
     Console.WriteLine($"  Found {result.Total} logs, showing {result.Logs.Count}:");
     foreach (var log in result.Logs)
     {
@@ -62,7 +58,7 @@ try
         To = DateTime.UtcNow,
         Limit = 10
     });
-    
+
     Console.WriteLine($"  Found {result.Total} info logs in the last hour");
 }
 catch (Exception ex)
@@ -79,7 +75,7 @@ try
         Query = "message 5",
         Limit = 10
     });
-    
+
     Console.WriteLine($"  Found {result.Total} logs matching 'message 5'");
 }
 catch (Exception ex)
@@ -89,27 +85,24 @@ catch (Exception ex)
 
 // 4. Get logs by trace ID
 Console.WriteLine("\n4. Logs by Trace ID");
-var traceId = Guid.NewGuid().ToString();
-
-// Send logs with trace ID
-client.WithTraceId(traceId, () =>
+using (var scope = LogTideScope.Create())
 {
     client.Info("query-example", "Step 1: Start");
     client.Info("query-example", "Step 2: Processing");
     client.Info("query-example", "Step 3: Complete");
-});
 
-await client.FlushAsync();
-await Task.Delay(500);
+    await client.FlushAsync();
+    await Task.Delay(500);
 
-try
-{
-    var traceLogs = await client.GetByTraceIdAsync(traceId);
-    Console.WriteLine($"  Found {traceLogs.Count} logs for trace {traceId}");
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"  Error: {ex.Message}");
+    try
+    {
+        var traceLogs = await client.GetByTraceIdAsync(scope.TraceId);
+        Console.WriteLine($"  Found {traceLogs.Count} logs for trace {scope.TraceId}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  Error: {ex.Message}");
+    }
 }
 
 // 5. Aggregated statistics
@@ -122,11 +115,11 @@ try
         To = DateTime.UtcNow,
         Interval = "1h"
     });
-    
+
     Console.WriteLine($"  Time series entries: {stats.Timeseries.Count}");
     Console.WriteLine($"  Top services: {stats.TopServices.Count}");
     Console.WriteLine($"  Top errors: {stats.TopErrors.Count}");
-    
+
     if (stats.TopServices.Count > 0)
     {
         Console.WriteLine("  Top services:");
@@ -141,6 +134,4 @@ catch (Exception ex)
     Console.WriteLine($"  Error: {ex.Message}");
 }
 
-// Cleanup
-await client.DisposeAsync();
 Console.WriteLine("\nDone!");

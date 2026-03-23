@@ -14,6 +14,7 @@ internal class CircuitBreaker
     private CircuitState _state = CircuitState.Closed;
     private int _failureCount;
     private DateTime? _lastFailureTime;
+    private bool _halfOpenProbePending;
 
     /// <summary>
     /// Creates a new circuit breaker.
@@ -49,6 +50,7 @@ internal class CircuitBreaker
         lock (_lock)
         {
             _failureCount = 0;
+            _halfOpenProbePending = false;
             _state = CircuitState.Closed;
         }
     }
@@ -61,12 +63,9 @@ internal class CircuitBreaker
         lock (_lock)
         {
             _failureCount++;
+            _halfOpenProbePending = false;
             _lastFailureTime = DateTime.UtcNow;
-
-            if (_failureCount >= _threshold)
-            {
-                _state = CircuitState.Open;
-            }
+            if (_failureCount >= _threshold) _state = CircuitState.Open;
         }
     }
 
@@ -78,7 +77,12 @@ internal class CircuitBreaker
         lock (_lock)
         {
             UpdateState();
-            return _state != CircuitState.Open;
+            if (_state == CircuitState.Closed) return true;
+            if (_state == CircuitState.Open) return false;
+            // HalfOpen: allow exactly one probe
+            if (_halfOpenProbePending) return false;
+            _halfOpenProbePending = true;
+            return true;
         }
     }
 

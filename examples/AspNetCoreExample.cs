@@ -1,4 +1,4 @@
-using LogTide.SDK;
+using LogTide.SDK.Core;
 using LogTide.SDK.Middleware;
 using LogTide.SDK.Models;
 
@@ -6,11 +6,12 @@ using LogTide.SDK.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add LogTide client to DI container
+// Add LogTide client with IHttpClientFactory
 builder.Services.AddLogTide(new ClientOptions
 {
     ApiUrl = builder.Configuration["LogTide:ApiUrl"] ?? "http://localhost:8080",
     ApiKey = builder.Configuration["LogTide:ApiKey"] ?? "lp_your_api_key_here",
+    ServiceName = "aspnet-example",
     Debug = builder.Environment.IsDevelopment(),
     GlobalMetadata = new Dictionary<string, object?>
     {
@@ -21,7 +22,10 @@ builder.Services.AddLogTide(new ClientOptions
 
 var app = builder.Build();
 
-// Add LogTide middleware for automatic HTTP logging
+// Add error handler middleware (catches unhandled exceptions)
+app.UseLogTideErrors();
+
+// Add LogTide middleware for automatic HTTP logging with W3C traceparent
 app.UseLogTide(options =>
 {
     options.ServiceName = "aspnet-example";
@@ -32,60 +36,35 @@ app.UseLogTide(options =>
     options.SkipPaths.Add("/favicon.ico");
 });
 
-// Health check endpoint (will be skipped by middleware)
+// Health check endpoint (skipped by middleware)
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
-// Basic endpoint
-app.MapGet("/", (LogTideClient logger) =>
+// Basic endpoint — ILogTideClient resolved from DI
+app.MapGet("/", (ILogTideClient logger) =>
 {
     logger.Info("aspnet-example", "Home page accessed");
     return Results.Ok(new { message = "Hello, World!" });
 });
 
 // Endpoint with custom logging
-app.MapGet("/users/{id}", (int id, LogTideClient logger) =>
+app.MapGet("/users/{id}", (int id, ILogTideClient logger) =>
 {
     logger.Info("aspnet-example", $"Fetching user {id}", new Dictionary<string, object?>
     {
         ["userId"] = id
     });
-    
-    return Results.Ok(new
-    {
-        id,
-        name = $"User {id}",
-        email = $"user{id}@example.com"
-    });
+
+    return Results.Ok(new { id, name = $"User {id}", email = $"user{id}@example.com" });
 });
 
-// Endpoint that throws an error (will be logged by middleware)
+// Endpoint that throws an error (caught by UseLogTideErrors)
 app.MapGet("/error", () =>
 {
     throw new InvalidOperationException("This is a test error!");
 });
 
-// Endpoint with trace ID context
-app.MapGet("/process", async (LogTideClient logger) =>
-{
-    await logger.WithTraceId(Guid.NewGuid().ToString(), async () =>
-    {
-        logger.Info("aspnet-example", "Starting process");
-        
-        await Task.Delay(100); // Simulate work
-        logger.Debug("aspnet-example", "Step 1 completed");
-        
-        await Task.Delay(100);
-        logger.Debug("aspnet-example", "Step 2 completed");
-        
-        await Task.Delay(100);
-        logger.Info("aspnet-example", "Process completed");
-    });
-    
-    return Results.Ok(new { status = "completed" });
-});
-
 // Metrics endpoint
-app.MapGet("/metrics", (LogTideClient logger) =>
+app.MapGet("/metrics", (ILogTideClient logger) =>
 {
     var metrics = logger.GetMetrics();
     return Results.Ok(new
@@ -93,9 +72,6 @@ app.MapGet("/metrics", (LogTideClient logger) =>
         logsSent = metrics.LogsSent,
         logsDropped = metrics.LogsDropped,
         errors = metrics.Errors,
-        retries = metrics.Retries,
-        avgLatencyMs = metrics.AvgLatencyMs,
-        circuitBreakerTrips = metrics.CircuitBreakerTrips,
         circuitBreakerState = logger.GetCircuitBreakerState().ToString()
     });
 });
@@ -103,7 +79,7 @@ app.MapGet("/metrics", (LogTideClient logger) =>
 // Graceful shutdown
 app.Lifetime.ApplicationStopping.Register(async () =>
 {
-    var logger = app.Services.GetRequiredService<LogTideClient>();
+    var logger = app.Services.GetRequiredService<ILogTideClient>();
     await logger.FlushAsync();
     Console.WriteLine("Logs flushed on shutdown");
 });
