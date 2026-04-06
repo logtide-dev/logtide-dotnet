@@ -166,6 +166,30 @@ Log.Logger = new LoggerConfiguration()
 Log.Information("User {UserId} logged in", 42);  // forwarded to LogTide
 ```
 
+### Alternative: Serilog.Sinks.OpenTelemetry
+
+If you prefer to use the community [`Serilog.Sinks.OpenTelemetry`](https://github.com/serilog/serilog-sinks-opentelemetry) package directly, for example to share a single sink configuration for logs and traces, point it at LogTide's OTLP endpoints:
+
+```csharp
+using Serilog;
+using Serilog.Sinks.OpenTelemetry;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.OpenTelemetry(options =>
+    {
+        options.LogsEndpoint   = "https://your-logtide-host/v1/otlp/logs";
+        options.TracesEndpoint = "https://your-logtide-host/v1/otlp/traces";
+        options.Protocol = OtlpProtocol.HttpProtobuf;
+        options.Headers = new Dictionary<string, string>
+        {
+            ["X-API-Key"] = "lp_your_key"
+        };
+    })
+    .CreateLogger();
+```
+
+> **Important:** always set `LogsEndpoint` and `TracesEndpoint` to the **full URL including the path**. Setting only `options.Endpoint = "https://your-logtide-host"` causes `Serilog.Sinks.OpenTelemetry` to auto-append `/v1/logs` and `/v1/traces`, which do **not** match LogTide's OTLP routes (`/v1/otlp/logs` and `/v1/otlp/traces`). If you set `Endpoint` to the full OTLP path, the sink will append the suffix again and produce a broken URL like `.../v1/otlp/logs/v1/logs`.
+
 ---
 
 ## Configuration Options
