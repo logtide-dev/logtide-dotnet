@@ -105,11 +105,11 @@ public sealed class LogTideClient : ILogTideClient
     public void Error(string service, string message, Dictionary<string, object?>? metadata = null)
         => Log(new LogEntry { Service = service, Level = LogLevel.Error, Message = message, Metadata = metadata ?? new() });
     public void Error(string service, string message, Exception exception)
-        => Log(new LogEntry { Service = service, Level = LogLevel.Error, Message = message, Metadata = new() { ["error"] = SerializeException(exception) } });
+        => Log(new LogEntry { Service = service, Level = LogLevel.Error, Message = message, Metadata = new() { ["exception"] = SerializeException(exception) } });
     public void Critical(string service, string message, Dictionary<string, object?>? metadata = null)
         => Log(new LogEntry { Service = service, Level = LogLevel.Critical, Message = message, Metadata = metadata ?? new() });
     public void Critical(string service, string message, Exception exception)
-        => Log(new LogEntry { Service = service, Level = LogLevel.Critical, Message = message, Metadata = new() { ["error"] = SerializeException(exception) } });
+        => Log(new LogEntry { Service = service, Level = LogLevel.Critical, Message = message, Metadata = new() { ["exception"] = SerializeException(exception) } });
 
     public Task FlushAsync(CancellationToken cancellationToken = default) => _transport.FlushAsync(cancellationToken);
 
@@ -213,11 +213,62 @@ public sealed class LogTideClient : ILogTideClient
 
     #endregion
 
-    private static Dictionary<string, object?> SerializeException(Exception ex)
+    // Canonical StructuredException shape: the backend's error grouping reads
+    // metadata.exception with type/message/language, stacktrace frames of
+    // {file, function, line, column}, and a nested cause chain (max depth 10).
+    private const int MaxCauseDepth = 10;
+    private const int MaxStackFrames = 100;
+
+    /// <summary>
+    /// Serializes an exception (with its inner-exception chain) to the
+    /// platform's canonical structured exception format, as attached to
+    /// entries under the <c>exception</c> metadata key.
+    /// </summary>
+    public static Dictionary<string, object?> SerializeException(Exception ex)
+        => SerializeException(ex, depth: 0, isRoot: true);
+
+    private static Dictionary<string, object?> SerializeException(Exception ex, int depth, bool isRoot)
     {
-        var r = new Dictionary<string, object?> { ["type"] = ex.GetType().FullName, ["message"] = ex.Message, ["stack"] = ex.StackTrace };
-        if (ex.InnerException != null) r["cause"] = SerializeException(ex.InnerException);
+        var type = ex.GetType().FullName ?? ex.GetType().Name;
+        var r = new Dictionary<string, object?>
+        {
+            ["type"] = type,
+            ["message"] = string.IsNullOrWhiteSpace(ex.Message) ? type : ex.Message,
+            ["language"] = "csharp",
+            ["stacktrace"] = SerializeFrames(ex),
+        };
+        if (isRoot) r["raw"] = ex.ToString();
+        if (ex.InnerException != null && depth < MaxCauseDepth)
+            r["cause"] = SerializeException(ex.InnerException, depth + 1, isRoot: false);
         return r;
+    }
+
+    private static List<Dictionary<string, object?>> SerializeFrames(Exception ex)
+    {
+        var frames = new List<Dictionary<string, object?>>();
+        System.Diagnostics.StackFrame[]? stackFrames;
+        try { stackFrames = new System.Diagnostics.StackTrace(ex, fNeedFileInfo: true).GetFrames(); }
+        catch { return frames; }
+        if (stackFrames == null) return frames;
+
+        foreach (var frame in stackFrames.Take(MaxStackFrames))
+        {
+            var method = frame.GetMethod();
+            var serialized = new Dictionary<string, object?>
+            {
+                ["function"] = method == null
+                    ? "<unknown>"
+                    : method.DeclaringType == null ? method.Name : $"{method.DeclaringType.FullName}.{method.Name}",
+            };
+            var file = frame.GetFileName();
+            if (!string.IsNullOrEmpty(file)) serialized["file"] = file;
+            var line = frame.GetFileLineNumber();
+            if (line > 0) serialized["line"] = line;
+            var column = frame.GetFileColumnNumber();
+            if (column > 0) serialized["column"] = column;
+            frames.Add(serialized);
+        }
+        return frames;
     }
 
     public void Dispose()

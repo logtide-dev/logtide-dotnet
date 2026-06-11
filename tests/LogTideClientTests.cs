@@ -97,7 +97,7 @@ public class LogTideClientLegacyTests
         client.Error("test", "Error occurred", exception);
         await client.FlushAsync();
         Assert.Single(fake.LogBatches);
-        Assert.True(fake.LogBatches[0][0].Metadata.ContainsKey("error"));
+        Assert.True(fake.LogBatches[0][0].Metadata.ContainsKey("exception"));
     }
 
     [Fact]
@@ -109,6 +109,6 @@ public class LogTideClientLegacyTests
         client.Critical("test", "Critical error occurred", exception);
         await client.FlushAsync();
         Assert.Single(fake.LogBatches);
-        Assert.True(fake.LogBatches[0][0].Metadata.ContainsKey("error"));
+        Assert.True(fake.LogBatches[0][0].Metadata.ContainsKey("exception"));
     }
 }

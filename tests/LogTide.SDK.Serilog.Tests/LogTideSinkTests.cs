@@ -53,7 +53,7 @@ public class LogTideSinkTests
         sink.Emit(evt);
 
         Assert.NotNull(captured);
-        Assert.True(captured!.Metadata.ContainsKey("error"));
+        Assert.True(captured!.Metadata.ContainsKey("exception"));
     }
 
     [Fact]

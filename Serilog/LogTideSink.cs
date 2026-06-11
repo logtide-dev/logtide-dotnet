@@ -23,7 +23,7 @@ public sealed class LogTideSink : ILogEventSink
         foreach (var p in logEvent.Properties)
             metadata[p.Key] = ExtractValue(p.Value);
         if (logEvent.Exception != null)
-            metadata["error"] = SerializeException(logEvent.Exception);
+            metadata["exception"] = LogTideClient.SerializeException(logEvent.Exception);
 
         _client.Log(new LogEntry
         {
@@ -55,10 +55,4 @@ public sealed class LogTideSink : ILogEventSink
         _ => value.ToString()
     };
 
-    private static Dictionary<string, object?> SerializeException(Exception ex)
-    {
-        var r = new Dictionary<string, object?> { ["type"] = ex.GetType().FullName, ["message"] = ex.Message, ["stack"] = ex.StackTrace };
-        if (ex.InnerException != null) r["cause"] = SerializeException(ex.InnerException);
-        return r;
-    }
 }

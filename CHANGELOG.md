@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-11
+
+### Added
+
+- **Microsoft.Extensions.Logging provider**: `LogTideLoggerProvider` + `ILoggingBuilder.AddLogTide(...)` (explicit client or DI-resolved). Routes `ILogger<T>` output through the client: structured state values and `BeginScope` values become metadata, levels are mapped (`Trace`/`Debug` → debug, `Critical` → critical), exceptions attach in the canonical structured format
+- `LogTideClient.SerializeException(Exception)` is now public
+
+### Changed
+
+- **Breaking:** exceptions are now serialized under the canonical `metadata.exception` key (was `metadata.error`) using the platform's StructuredException contract: `type`, `message` (falls back to the type name), `language: "csharp"`, structured `stacktrace` frames (`function`, `file`, `line`, `column` when PDBs are available), `raw`, and a nested `cause` chain capped at depth 10. Server-side error grouping and fingerprinting now work for .NET exceptions. The Serilog sink uses the same serializer
+
 ## [0.8.3] - 2026-03-23
 
 ### Added
