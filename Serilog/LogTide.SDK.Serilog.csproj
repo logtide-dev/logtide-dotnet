@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>13</LangVersion>
-    <Version>0.9.3</Version>
+    <Version>0.9.4</Version>
     <PackageId>LogTide.SDK.Serilog</PackageId>
     <NuGetAudit>true</NuGetAudit>
   </PropertyGroup>
