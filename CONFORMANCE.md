@@ -26,8 +26,8 @@ why a scenario does not apply. TODO entries are tracked work.
 | C18 | timestamp fidelity: time reflects capture, not delivery | ✅ | time from `LogEntry` creation |
 | C20 | scope isolation across concurrent requests | ✅ | `LogTideScopeTests` (AsyncLocal isolation) |
 | C21 | breadcrumb ring buffer eviction, oldest first | ✅ | `BreadcrumbBufferTests` (ring buffer) |
-| C22 | beforeSend can mutate or drop entries | TODO | beforeSend hook not implemented |
-| C23 | sampling: rate 0 sends nothing (logs) / no-op spans (traces) | TODO | sampling not implemented |
+| C22 | beforeSend can mutate or drop entries | ✅ | `HooksTests` |
+| C23 | sampling: rate 0 sends nothing (logs) / no-op spans (traces) | ✅ (logs) | `HooksTests`; trace sampling TODO |
 | C24 | OTLP span export with service.name resource | ✅ | `SpanManagerTests`, OTLP transport |
 | C25 | outbound traceparent injection on instrumented HTTP clients | partial | traceparent emitted on responses; outbound DelegatingHandler TODO |
 | C26 | log/trace correlation: active span ids on entries | ✅ | `LogTideScopeTests` (span ids on entries) |
