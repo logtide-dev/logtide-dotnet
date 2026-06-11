@@ -96,6 +96,26 @@ public sealed class LogTideClient : ILogTideClient
         // Stamp SDK identity (spec 003 §3); caller-provided value wins
         entry.Metadata.TryAdd("sdk", SdkIdentity);
 
+        // BeforeSend hook: may mutate or drop the entry. A buggy hook must
+        // never lose the entry or throw to the caller.
+        if (_options.BeforeSend != null)
+        {
+            LogEntry? result;
+            try { result = _options.BeforeSend(entry); }
+            catch (Exception hookError)
+            {
+                if (_options.Debug)
+                    Console.WriteLine($"[LogTide] BeforeSend threw, keeping entry: {hookError.Message}");
+                result = entry;
+            }
+            if (result == null) return;
+            entry = result;
+        }
+
+        // Sampling (applied after BeforeSend, spec 005 §5)
+        if (_options.SampleRate < 1.0 && Random.Shared.NextDouble() > _options.SampleRate)
+            return;
+
         _transport.Enqueue(entry);
     }
 

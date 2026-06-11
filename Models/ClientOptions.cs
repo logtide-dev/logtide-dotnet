@@ -88,6 +88,17 @@ public class ClientOptions
     public Dictionary<string, object?> GlobalMetadata { get; set; } = new();
 
     /// <summary>
+    /// Hook called before buffering: mutate the entry or return null to drop it.
+    /// A throwing hook never loses the entry.
+    /// </summary>
+    public Func<LogEntry, LogEntry?>? BeforeSend { get; set; }
+
+    /// <summary>
+    /// Per-entry sampling rate in [0.0, 1.0], applied after BeforeSend. Default 1.0.
+    /// </summary>
+    public double SampleRate { get; set; } = 1.0;
+
+    /// <summary>
     /// Automatically generate trace IDs for logs that don't have one. Default: false.
     /// </summary>
     public bool AutoTraceId { get; set; } = false;
