@@ -93,3 +93,43 @@ public class ExceptionSerializationTests
         Assert.True(fake.LogBatches[0][0].Metadata.ContainsKey("exception"));
     }
 }
+
+public class SdkMetadataTests
+{
+    private static (LogTideClient client, FakeTransport transport) Create()
+    {
+        var opts = new ClientOptions
+        {
+            ApiUrl = "http://localhost:8080",
+            ApiKey = "lp_test_key",
+            FlushIntervalMs = 60000,
+            Debug = false
+        };
+        var fake = new FakeTransport();
+        var client = new LogTideClient(opts, fake, fake);
+        return (client, fake);
+    }
+
+    [Fact]
+    public async Task Entries_CarrySdkMetadata()
+    {
+        var (client, fake) = Create();
+        client.Info("svc", "hello");
+        await client.FlushAsync();
+
+        var metadata = fake.LogBatches[0][0].Metadata;
+        var sdk = Assert.IsType<Dictionary<string, object?>>(metadata["sdk"]);
+        Assert.Equal("logtide-dotnet", sdk["name"]);
+        Assert.False(string.IsNullOrEmpty(sdk["version"]?.ToString()));
+    }
+
+    [Fact]
+    public async Task CallerProvidedSdkMetadataWins()
+    {
+        var (client, fake) = Create();
+        client.Info("svc", "hello", new Dictionary<string, object?> { ["sdk"] = "custom" });
+        await client.FlushAsync();
+
+        Assert.Equal("custom", fake.LogBatches[0][0].Metadata["sdk"]);
+    }
+}

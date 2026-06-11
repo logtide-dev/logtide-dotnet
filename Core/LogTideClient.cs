@@ -93,6 +93,9 @@ public sealed class LogTideClient : ILogTideClient
         foreach (var kvp in _options.GlobalMetadata)
             entry.Metadata.TryAdd(kvp.Key, kvp.Value);
 
+        // Stamp SDK identity (spec 003 §3); caller-provided value wins
+        entry.Metadata.TryAdd("sdk", SdkIdentity);
+
         _transport.Enqueue(entry);
     }
 
@@ -216,6 +219,12 @@ public sealed class LogTideClient : ILogTideClient
     // Canonical StructuredException shape: the backend's error grouping reads
     // metadata.exception with type/message/language, stacktrace frames of
     // {file, function, line, column}, and a nested cause chain (max depth 10).
+    private static readonly Dictionary<string, object?> SdkIdentity = new()
+    {
+        ["name"] = "logtide-dotnet",
+        ["version"] = typeof(LogTideClient).Assembly.GetName().Version?.ToString(3) ?? "unknown",
+    };
+
     private const int MaxCauseDepth = 10;
     private const int MaxStackFrames = 100;
 
