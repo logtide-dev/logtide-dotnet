@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-06-11
+
+### Changed
+
+- **Permanent client errors (4xx except 408/429) are no longer retried**: the batch is dropped after the first attempt. `ApiException` gains `IsRetryable` and `RetryAfterMs`
+- A `Retry-After` header on `429`/`503` responses now overrides the computed backoff delay
+
 ## [0.9.1] - 2026-06-11
 
 ### Added

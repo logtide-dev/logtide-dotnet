@@ -25,7 +25,10 @@ internal sealed class OtlpHttpTransport : ISpanTransport
         using var response = await _httpClient.PostAsync("/v1/otlp/traces", content, ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new ApiException((int)response.StatusCode,
-                await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+                await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false))
+            {
+                RetryAfterMs = (int?)response.Headers.RetryAfter?.Delta?.TotalMilliseconds
+            };
     }
 
     private object BuildOtlpPayload(IReadOnlyList<Span> spans) => new

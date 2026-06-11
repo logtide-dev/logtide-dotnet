@@ -101,16 +101,30 @@ internal sealed class BatchTransport : IDisposable, IAsyncDisposable
                 lock (_metricsLock) { _metrics.LogsSent += logs.Count; }
                 return;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 attempt++;
-                lock (_metricsLock) { _metrics.Errors++; if (attempt <= _options.MaxRetries) _metrics.Retries++; }
+                var api = ex as ApiException;
+                var retryable = api?.IsRetryable ?? true; // network errors: retry
+                lock (_metricsLock) { _metrics.Errors++; if (retryable && attempt <= _options.MaxRetries) _metrics.Retries++; }
+
+                // Permanent client errors (4xx except 408/429) will not become
+                // valid by retrying: drop the batch after the first attempt.
+                if (!retryable)
+                {
+                    _circuitBreaker.RecordFailure();
+                    if (_options.Debug)
+                        Console.WriteLine($"[LogTide] Non-retryable error (HTTP {api!.StatusCode}), dropping batch");
+                    break;
+                }
+
                 if (attempt > _options.MaxRetries)
                 {
                     _circuitBreaker.RecordFailure(); // record once after all retries exhausted
                     break;
                 }
-                await Task.Delay(delay, ct).ConfigureAwait(false);
+                // A server-provided Retry-After overrides the computed backoff
+                await Task.Delay(api?.RetryAfterMs ?? delay, ct).ConfigureAwait(false);
                 delay *= 2;
             }
         }

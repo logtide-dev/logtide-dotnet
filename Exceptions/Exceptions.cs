@@ -67,6 +67,17 @@ public class ApiException : LogTideException
     public int StatusCode { get; }
 
     /// <summary>
+    /// Parsed Retry-After header in milliseconds, when present.
+    /// </summary>
+    public int? RetryAfterMs { get; init; }
+
+    /// <summary>
+    /// Whether the failure is retryable per spec 002 §6 (408, 429, 5xx).
+    /// Other 4xx are permanent and must not be retried.
+    /// </summary>
+    public bool IsRetryable => StatusCode == 408 || StatusCode == 429 || StatusCode >= 500;
+
+    /// <summary>
     /// Creates a new ApiException.
     /// </summary>
     public ApiException(int statusCode, string message) 
